@@ -1,17 +1,65 @@
 // app/index.tsx
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import {supabase} from '../database/supabase'
 
 export default function HomeScreen() {
-  const [tasks, setTasks] = useState([
-    { id: '1', title: 'Limepeza da casa de banho', completed: false },
-    { id: '2', title: 'Limpar da cozinha', completed: false },
-    { id: '3', title: 'Limpar o fogão e bancada', completed: true },
-  ]);
 
-  const toggleTask = (id: string) => {
-    setTasks(tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+interface Task {
+  id: number;
+  scheduled_at: string;
+  status: string;
+  customer_id: number;
+  cleaning_type_id: number;
+  completed?: boolean;
+  cleaning_type?: {
+    type: string;
+  };
+}
+
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const customerId = 1; // Exemplo: ID do cliente logado
+
+  useEffect(() => {
+    carregarTarefasDoCliente(customerId);
+  }, []);
+
+  async function carregarTarefasDoCliente(customerId: number) {
+    if (!customerId) return;
+
+    // 2. Traz os campos da 'task' e o nome do 'type' da tabela 'cleaning_type'
+    const { data, error } = await supabase
+      .from('task')
+      .select(`
+        id,
+        scheduled_at,
+        status,
+        customer_id,
+        cleaning_type_id,
+        cleaning_type (
+          type
+        )
+      `)
+      .eq('customer_id', customerId); 
+
+    if (error) {
+      console.error('Erro ao procurar tarefas:', error);
+    } else {
+      const tarefasFormatadas = (data || []).map((item: any) => ({
+        ...item,
+        completed: item.status === 'concluído', // Define completed com base no status
+      }));
+
+      console.log('Tarefas carregadas do cliente:', tarefasFormatadas);
+      setTasks(tarefasFormatadas);
+    }
+  }
+
+  const toggleTask = (id: number) => {
+    setTasks(prevTasks =>
+      prevTasks.map(t => (t.id === id ? { ...t, completed: !t.completed } : t))
+    );
   };
 
   return (
@@ -21,7 +69,7 @@ export default function HomeScreen() {
         <View style={styles.badge}>
           <Text style={styles.badgeText}>TURNO DE HOJE</Text>
         </View>
-        <Text style={styles.roommateName}>👤 Lucas Silva</Text>
+        <Text style={styles.roommateName}>{tasks[0]?.id || 'Limpeza'}</Text>
         <Text style={styles.roomName}>📍 Cozinha & Sala de Estar</Text>
         <Text style={styles.deadline}>Prazo: Hoje, até às 21:00</Text>
       </View>
@@ -41,7 +89,7 @@ export default function HomeScreen() {
               color={task.completed ? "#10b981" : "#94a3b8"} 
             />
             <Text style={[styles.taskText, task.completed && styles.taskCompleted]}>
-              {task.title}
+              {task.cleaning_type?.type || 'Limpeza'}
             </Text>
           </TouchableOpacity>
         ))}
