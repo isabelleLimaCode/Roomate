@@ -17,13 +17,56 @@ interface Task {
     type: string;
   };
 }
+interface nomeCliente {
+  id : number;
+  name : string;
+  room:number;
+  cleanliness_status:string;
+}
 
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [DadosCliente, setDadosCliente] = useState<nomeCliente | null>(null);
   const customerId = 1; // Exemplo: ID do cliente logado
 
   useEffect(() => {
     carregarTarefasDoCliente(customerId);
+    carregarNomeCliente(customerId);
   }, []);
+
+  async function carregarNomeCliente(customerId: number) {
+    if (!customerId) return;
+
+    const { data, error } = await supabase
+      .from('customer')
+      .select('id, name, room, cleanliness_status')
+      .eq('id', customerId)
+      .single();
+
+    if (error) {
+      console.error('Erro ao procurar cliente:', error);
+    } else {
+      setDadosCliente(data);
+      console.log('Nome do cliente carregado:', data.name);
+      // Aqui você pode armazenar o nome do cliente em um estado se necessário
+    }
+  }
+
+  const atualizaTask = async (id: number) => {
+    // 1. Atualiza na base de dados Supabase
+    const { error } = await supabase
+      .from('task')
+      .update({ status: 'concluído' })
+      .eq('id', id);
+
+    if (error) {
+      console.error('Erro ao atualizar estado no Supabase:', error);
+      alert('Erro ao concluir tarefa na base de dados.');
+      return;
+    }
+
+    // 2. Remove da lista local para só manter as que "não terminou"
+    setTasks(prevTasks => prevTasks.filter(t => t.id !== id));
+  };
 
   async function carregarTarefasDoCliente(customerId: number) {
     if (!customerId) return;
@@ -41,14 +84,15 @@ interface Task {
           type
         )
       `)
-      .eq('customer_id', customerId); 
+      .eq('customer_id', customerId)
+      .neq('status', 'concluído');
 
     if (error) {
       console.error('Erro ao procurar tarefas:', error);
     } else {
       const tarefasFormatadas = (data || []).map((item: any) => ({
         ...item,
-        completed: item.status === 'concluído', // Define completed com base no status
+        completed: false,
       }));
 
       console.log('Tarefas carregadas do cliente:', tarefasFormatadas);
@@ -69,7 +113,7 @@ interface Task {
         <View style={styles.badge}>
           <Text style={styles.badgeText}>TURNO DE HOJE</Text>
         </View>
-        <Text style={styles.roommateName}>{tasks[0]?.id || 'Limpeza'}</Text>
+        <Text style={styles.roommateName}>{DadosCliente?.name || 'Nome do Cliente'}</Text>
         <Text style={styles.roomName}>📍 Cozinha & Sala de Estar</Text>
         <Text style={styles.deadline}>Prazo: Hoje, até às 21:00</Text>
       </View>
@@ -96,7 +140,7 @@ interface Task {
       </View>
 
       {/* Botão de Registrar Conclusão */}
-      <TouchableOpacity style={styles.buttonDone} onPress={() => alert('Limpeza registrada com sucesso! Parabéns 🎉')}>
+      <TouchableOpacity style={styles.buttonDone} onPress={() => atualizaTask(tasks.find(t => t.completed)?.id || 0)}>
         <Ionicons name="checkmark-circle" size={22} color="#fff" />
         <Text style={styles.buttonDoneText}>Marcar Limpeza como Concluída</Text>
       </TouchableOpacity>
