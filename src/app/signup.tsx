@@ -13,10 +13,14 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+// Importamos o hook para lidar com a Safe Area
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../database/supabase';
 
 export default function SignUpScreen() {
   const router = useRouter();
+  // Obtemos as medidas da Safe Area (topo, baixo, esquerda, direita)
+  const insets = useSafeAreaInsets();
 
   const [name, setName] = useState('');
   const [room, setRoom] = useState('');
@@ -25,150 +29,144 @@ export default function SignUpScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  async function handleSignUp() {
-    if (!name || !room || !email || !password) {
-      Alert.alert('Atenção', 'Por favor, preenche todos os campos.');
-      return;
-    }
-
-    try {
-      setLoading(true);
-
-      // 1. Cria a conta no Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-      });
-
-      if (authError) {
-        Alert.alert('Erro no Registo', authError.message);
-        return;
-      }
-
-      // 2. Insere os dados adicionais associados ao ID do utilizador criado
-      if (authData.user) {
-        const { error: dbError } = await supabase.from('customer').insert([
-          {
-            id: authData.user.id, // <- Liga o ID da auth ao ID do perfil do cliente
-            name: name.trim(),
-            room: parseInt(room, 10),
-            cleanliness_status: 'nao concluido',
-          },
-        ]);
-
-        if (dbError) {
-          console.error('Erro ao guardar dados do cliente:', dbError);
-          Alert.alert(
-            'Aviso',
-            'Conta criada, mas ocorreu um erro ao guardar os detalhes do perfil.'
-          );
-        } else {
-          Alert.alert('Sucesso 🎉', 'Conta criada com sucesso!', [
-            {
-              text: 'Continuar',
-              onPress: () => router.replace('/'),
-            },
-          ]);
-        }
-      }
-    } catch (error) {
-      Alert.alert('Erro', 'Ocorreu um erro inesperado ao criar a conta.');
-    } finally {
-      setLoading(false); // Garante que o loading para SEMPRE
-    }
+async function handleSignUp() {
+  if (!name || !room || !email || !password) {
+    Alert.alert('Atenção', 'Por favor, preenche todos os campos.');
+    return;
   }
+
+  setLoading(true);
+
+  // Regista a conta e envia o nome e o quarto nos metadados para a Trigger ler
+  const { data, error } = await supabase.auth.signUp({
+    email: email.trim(),
+    password,
+    options: {
+      data: {
+        name: name.trim(),
+        room: parseInt(room, 10),
+        cleanliness_status: 'Nao concluido', // Valor inicial para o status de limpeza
+
+      },
+    },
+  });
+
+  setLoading(false);
+
+  if (error) {
+    Alert.alert('Erro no Registo', error.message);
+        setEmail('');
+        setPassword('');
+        setName('');
+        setRoom('');
+  } else {
+    Alert.alert('Sucesso 🎉', 'Conta criada com sucesso!', [
+      {
+        text: 'Continuar',
+        onPress: () => router.replace('/'),
+      },
+    ]);
+  }
+}
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
+      {/* --- NOVA POSIÇÃO DO BOTÃO DE VOLTAR --- */}
+      {/* Usamos insets.top para garantir que ele fique abaixo da barra de status */}
+      <TouchableOpacity
+        style={[styles.backButton, { top: insets.top + 10 }]}
+        onPress={() => router.back()}
+      >
+        <Ionicons name="arrow-back" size={24} color="#1e293b" />
+      </TouchableOpacity>
+
       <ScrollView contentContainerStyle={styles.scrollContainer}>
-        {/* Botão de Voltar */}
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#1e293b" />
-        </TouchableOpacity>
-
-        <View style={styles.headerContainer}>
-          <Text style={styles.title}>Criar Conta</Text>
-          <Text style={styles.subtitle}>Junta-te aos teus roommates e organiza a casa</Text>
-        </View>
-
-        <View style={styles.formContainer}>
-          {/* Nome */}
-          <View style={styles.inputContainer}>
-            <Ionicons name="person-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="Nome Completo"
-              placeholderTextColor="#94a3b8"
-              value={name}
-              onChangeText={setName}
-            />
+        {/* Adicionamos um padding extra no topo do scroll para compensar o botão fixo */}
+        <View style={styles.contentWrapper}>
+          <View style={styles.headerContainer}>
+            <Text style={styles.title}>Criar Conta</Text>
+            <Text style={styles.subtitle}>Junta-te aos teus roommates e organiza a casa</Text>
           </View>
 
-          {/* Quarto */}
-          <View style={styles.inputContainer}>
-            <Ionicons name="bed-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="Número do Quarto (ex: 1, 2, 101)"
-              placeholderTextColor="#94a3b8"
-              keyboardType="numeric"
-              value={room}
-              onChangeText={setRoom}
-            />
-          </View>
-
-          {/* Email */}
-          <View style={styles.inputContainer}>
-            <Ionicons name="mail-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="Email"
-              placeholderTextColor="#94a3b8"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              value={email}
-              onChangeText={setEmail}
-            />
-          </View>
-
-          {/* Password */}
-          <View style={styles.inputContainer}>
-            <Ionicons name="lock-closed-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="Palavra-passe"
-              placeholderTextColor="#94a3b8"
-              secureTextEntry={!showPassword}
-              value={password}
-              onChangeText={setPassword}
-            />
-            <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-              <Ionicons
-                name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                size={20}
-                color="#94a3b8"
+          <View style={styles.formContainer}>
+            {/* Nome */}
+            <View style={styles.inputContainer}>
+              <Ionicons name="person-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Nome Completo"
+                placeholderTextColor="#94a3b8"
+                value={name}
+                onChangeText={setName}
               />
+            </View>
+
+            {/* Quarto */}
+            <View style={styles.inputContainer}>
+              <Ionicons name="bed-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Número do Quarto (ex: 1, 2, 101)"
+                placeholderTextColor="#94a3b8"
+                keyboardType="numeric"
+                value={room}
+                onChangeText={setRoom}
+              />
+            </View>
+
+            {/* Email */}
+            <View style={styles.inputContainer}>
+              <Ionicons name="mail-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Email"
+                placeholderTextColor="#94a3b8"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                value={email}
+                onChangeText={setEmail}
+              />
+            </View>
+
+            {/* Password */}
+            <View style={styles.inputContainer}>
+              <Ionicons name="lock-closed-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Palavra-passe"
+                placeholderTextColor="#94a3b8"
+                secureTextEntry={!showPassword}
+                value={password}
+                onChangeText={setPassword}
+              />
+              <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                <Ionicons
+                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                  size={20}
+                  color="#94a3b8"
+                />
+              </TouchableOpacity>
+            </View>
+
+            {/* Botão de Registar */}
+            <TouchableOpacity
+              style={[styles.button, loading && styles.buttonDisabled]}
+              onPress={handleSignUp}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Text style={styles.buttonText}>Registar</Text>
+                  <Ionicons name="checkmark-circle-outline" size={20} color="#fff" style={styles.buttonIcon} />
+                </>
+              )}
             </TouchableOpacity>
           </View>
-
-          {/* Botão de Registar */}
-          <TouchableOpacity
-            style={[styles.button, loading && styles.buttonDisabled]}
-            onPress={handleSignUp}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <>
-                <Text style={styles.buttonText}>Registar</Text>
-                <Ionicons name="checkmark-circle-outline" size={20} color="#fff" style={styles.buttonIcon} />
-              </>
-            )}
-          </TouchableOpacity>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -185,14 +183,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexGrow: 1,
   },
+  // Wrapper extra para ajustar o layout centralizado dentro do scroll
+  contentWrapper: {
+    width: '100%',
+    justifyContent: 'center',
+    flex: 1,
+    paddingTop: 60, // Dá espaço para o botão fixo no topo
+  },
+  // --- ESTILOS ATUALIZADOS DO BOTÃO DE VOLTAR ---
   backButton: {
-    marginBottom: 20,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#e2e8f0',
+    position: 'absolute', // Fixa o botão
+    left: 20, // Distância da esquerda
+    zIndex: 10, // Garante que ele fique sobre o ScrollView
+    width: 44, // Tamanho mínimo recomendado para toque (44x44)
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(226, 232, 240, 0.9)', // Fundo ligeiramente transparente
     justifyContent: 'center',
     alignItems: 'center',
+    // Adicionamos uma sombra leve para destacar do fundo
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
   },
   headerContainer: {
     marginBottom: 28,
