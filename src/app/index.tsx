@@ -130,20 +130,22 @@ export default function HomeScreen() {
           <Text style={styles.emptyText}>Sem tarefas pendentes para hoje 🎉</Text>
         ) : (
           tasks.map(task => (
-            <View key={task.id} style={styles.taskItem}>
+            <TouchableOpacity
+              key={task.id}
+              style={styles.taskItem}
+              onPress={() => toggleTask(task.id)}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={task.completed ? "checkbox" : "square-outline"}
+                size={24}
+                color={task.completed ? "#10b981" : "#94a3b8"}
+              />
               <Text style={[styles.taskText, task.completed && styles.taskCompleted]}>
                 {task.cleaning_type?.type || 'Limpeza Geral'}
               </Text>
-              
-              <Switch
-                trackColor={{ false: '#e2e8f0', true: '#a7f3d0' }}
-                thumbColor={task.completed ? '#10b981' : '#94a3b8'}
-                ios_backgroundColor="#e2e8f0"
-                onValueChange={() => toggleTask(task.id)}
-                value={!!task.completed}
-              />
-            </View>
-          ))
+            </TouchableOpacity>
+          )) // <- Faltava fechar aqui
         )}
       </View>
 
