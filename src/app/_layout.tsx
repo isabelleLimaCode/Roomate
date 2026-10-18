@@ -25,19 +25,20 @@ export default function TabLayout() {
     return () => subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    if (loading) return;
+    useEffect(() => {
+      if (loading) return;
 
-    const inLoginGroup = segments[0] === 'login';
+      // Verifica se o utilizador está numa rota pública (login ou signup)
+      const isAuthPage = segments[0] === 'login' || segments[0] === 'signup';
 
-    if (!session && !inLoginGroup) {
-      // Redireciona para o login se não houver sessão
-      router.replace('/login');
-    } else if (session && inLoginGroup) {
-      // Redireciona para o menu principal se já estiver autenticado
-      router.replace('/');
-    }
-  }, [session, loading, segments]);
+      if (!session && !isAuthPage) {
+        // Se não tem sessão e tenta aceder a uma página privada, vai para o login
+        router.replace('/login');
+      } else if (session && isAuthPage) {
+        // Se já tem sessão e tenta aceder ao login/signup, vai para a página inicial
+        router.replace('/');
+      }
+    }, [session, loading, segments]);
 
   if (loading) {
     return (
@@ -80,18 +81,20 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => <Ionicons name="calendar" size={size} color={color} />,
         }}
       />
-      <Tabs.Screen
-        name="historico"
-        options={{
-          title: 'Histórico',
-          tabBarIcon: ({ color, size }) => <Ionicons name="time" size={size} color={color} />,
-        }}
-      />
+
       <Tabs.Screen
         name="perfil"
         options={{
           title: 'Perfil',
           tabBarIcon: ({ color, size }) => <Ionicons name="people" size={size} color={color} />,
+        }}
+      />
+       <Tabs.Screen
+        name="signup"
+        options={{
+           href: null, // Impede de aparecer na barra de abas
+          headerShown: false, // Esconde o cabeçalho superior no login
+          tabBarStyle: { display: 'none' }, // Esconde a barra inferior quando no login
         }}
       />
     </Tabs>

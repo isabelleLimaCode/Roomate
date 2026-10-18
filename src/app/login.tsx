@@ -22,11 +22,12 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
 
   async function handleLogin() {
-    if (!email || !password) {
-      Alert.alert('Atenção', 'Por favor, preenche todos os campos.');
-      return;
-    }
+  if (!email || !password) {
+    Alert.alert('Atenção', 'Por favor, preenche todos os campos.');
+    return;
+  }
 
+  try {
     setLoading(true);
 
     const { error } = await supabase.auth.signInWithPassword({
@@ -34,15 +35,21 @@ export default function LoginScreen() {
       password,
     });
 
-    setLoading(false);
-
     if (error) {
       Alert.alert('Erro no Login', error.message);
     } else {
-      // Navega para a página principal após autenticação bem-sucedida
+      setEmail('');
+      setPassword('');
       router.replace('/');
     }
+  } catch (err) {
+    Alert.alert('Erro', 'Ocorreu um erro inesperado.');
+  } finally {
+    setLoading(false); 
   }
+}
+
+
 
   return (
     <KeyboardAvoidingView
@@ -106,6 +113,18 @@ export default function LoginScreen() {
               <Ionicons name="arrow-forward" size={20} color="#fff" style={styles.buttonIcon} />
             </>
           )}
+        </TouchableOpacity>
+
+        {/* Botão Secundário para Criar Conta */}
+        <TouchableOpacity
+          style={styles.secondaryButton}
+
+          onPress={() => {
+            console.log('Navegando para a página de registo...');
+            router.push('/signup');
+          }}
+        >
+          <Text style={styles.secondaryButtonText}>Ainda não tens conta? Criar Conta</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -189,5 +208,16 @@ const styles = StyleSheet.create({
   },
   buttonIcon: {
     marginLeft: 8,
+  },
+  // Adicionar aos styles:
+  secondaryButton: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  secondaryButtonText: {
+    color: '#6366f1',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

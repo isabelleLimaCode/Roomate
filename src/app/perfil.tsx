@@ -53,8 +53,6 @@ export default function ProfileScreen() {
             if (error) {
               Alert.alert('Erro', 'Não foi possível terminar a sessão.');
             } else {
-              // O listener no _layout.tsx já trata o redirecionamento,
-              // mas forçamos para garantir navegação imediata.
               router.replace('/login');
             }
           },
