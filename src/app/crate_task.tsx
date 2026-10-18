@@ -126,10 +126,7 @@ export default function CreateTaskScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-      {/* Botão de Voltar */}
-      <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-        <Ionicons name="arrow-back" size={24} color="#1e293b" />
-      </TouchableOpacity>
+     
 
       <Text style={styles.title}>Criar Nova Tarefa</Text>
       <Text style={styles.subtitle}>Atribui uma tarefa de limpeza a um roommate</Text>

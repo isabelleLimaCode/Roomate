@@ -97,6 +97,14 @@ export default function TabLayout() {
           tabBarStyle: { display: 'none' }, // Esconde a barra inferior quando no login
         }}
       />
+      <Tabs.Screen
+        name="crate_task"
+        options={{
+           title: 'Criar Tarefa',
+          tabBarIcon: ({ color, size }) => <Ionicons name="add-circle" size={size} color={color} />,
+        }}
+      />
+
     </Tabs>
   );
 }

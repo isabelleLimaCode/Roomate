@@ -1,13 +1,22 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Alert, Switch } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
+  RefreshControl,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../database/supabase';
+import SlideButton from '../components/SlideButton';
 
 interface Task {
   id: number;
   scheduled_at: string;
   status: string;
-  customer_id: string; // Alterado para string (UUID)
+  customer_id: string;
   cleaning_type_id: number;
   completed?: boolean;
   cleaning_type?: {
@@ -16,7 +25,7 @@ interface Task {
 }
 
 interface NomeCliente {
-  id: string; // Alterado para string (UUID)
+  id: string;
   name: string;
   room: number;
   cleanliness_status: string;
@@ -24,6 +33,7 @@ interface NomeCliente {
 
 export default function HomeScreen() {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [refreshing1, setRefreshing1] = useState(false);
   const [dadosCliente, setDadosCliente] = useState<NomeCliente | null>(null);
 
   useEffect(() => {
@@ -31,15 +41,16 @@ export default function HomeScreen() {
   }, []);
 
   async function carregarDadosDoUtilizador() {
-    // 1. Obtém o utilizador atualmente autenticado no Supabase Auth
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
 
     if (authError || !user) {
       console.error('Erro ao obter utilizador autenticado:', authError);
       return;
     }
 
-    // 2. Procura os dados do cliente correspondente ao ID (UUID)
     const { data: clienteData, error: clienteError } = await supabase
       .from('customer')
       .select('id, name, room, cleanliness_status')
@@ -50,10 +61,15 @@ export default function HomeScreen() {
       console.error('Erro ao procurar cliente:', clienteError);
     } else if (clienteData) {
       setDadosCliente(clienteData);
-      // 3. Carrega as tarefas filtradas pelo ID do utilizador autenticado
-      carregarTarefasDoCliente(user.id);
+      await carregarTarefasDoCliente(user.id);
     }
   }
+
+  const onRefresh1 = useCallback(async () => {
+    setRefreshing1(true);
+    await carregarDadosDoUtilizador();
+    setRefreshing1(false);
+  }, []);
 
   async function carregarTarefasDoCliente(customerId: string) {
     if (!customerId) return;
@@ -91,35 +107,53 @@ export default function HomeScreen() {
     );
   };
 
-  const atualizaTask = async (id: number) => {
-    if (!id) return;
+  const concluiTarefasSelecionadas = async () => {
+    const selectedIds = tasks.filter(t => t.completed).map(t => t.id);
 
-    // 1. Atualiza na base de dados Supabase
-    const { error } = await supabase
-      .from('task')
-      .update({ status: 'concluído' })
-      .eq('id', id);
-
-    if (error) {
-      console.error('Erro ao atualizar estado no Supabase:', error);
-      Alert.alert('Erro', 'Não foi possível concluir a tarefa na base de dados.');
+    if (selectedIds.length === 0) {
+      Alert.alert(
+        'Atenção',
+        'Seleciona pelo menos uma tarefa antes de deslizar.'
+      );
       return;
     }
 
-    // 2. Remove da lista local as tarefas concluídas
-    setTasks(prevTasks => prevTasks.filter(t => t.id !== id));
+    const { error } = await supabase
+      .from('task')
+      .update({ status: 'concluído' })
+      .in('id', selectedIds);
+
+    if (error) {
+      console.error('Erro ao atualizar estado no Supabase:', error);
+      Alert.alert('Erro', 'Não foi possível concluir as tarefas na base de dados.');
+      return;
+    }
+
+    setTasks(prevTasks => prevTasks.filter(t => !selectedIds.includes(t.id)));
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing1}
+          onRefresh={onRefresh1}
+          tintColor="#6366f1"
+          colors={['#6366f1']}
+        />
+      }
+    >
       {/* Card de Destaque do Turno Atual */}
       <View style={styles.cardAtivo}>
         <View style={styles.badge}>
           <Text style={styles.badgeText}>TURNO DE HOJE</Text>
         </View>
-        <Text style={styles.roommateName}>{dadosCliente?.name || 'A carregar...'}</Text>
+        <Text style={styles.roommateName}>
+          {dadosCliente?.name || 'A carregar...'}
+        </Text>
         <Text style={styles.roomName}>
-          📍 Quarto {dadosCliente?.room ? `${dadosCliente.room}` : '--'} 
+          📍 Quarto {dadosCliente?.room ? `${dadosCliente.room}` : '--'}
         </Text>
       </View>
 
@@ -137,30 +171,29 @@ export default function HomeScreen() {
               activeOpacity={0.7}
             >
               <Ionicons
-                name={task.completed ? "checkbox" : "square-outline"}
+                name={task.completed ? 'checkbox' : 'square-outline'}
                 size={24}
-                color={task.completed ? "#10b981" : "#94a3b8"}
+                color={task.completed ? '#10b981' : '#94a3b8'}
               />
-              <Text style={[styles.taskText, task.completed && styles.taskCompleted]}>
+              <Text
+                style={[
+                  styles.taskText,
+                  task.completed && styles.taskCompleted,
+                ]}
+              >
                 {task.cleaning_type?.type || 'Limpeza Geral'}
               </Text>
             </TouchableOpacity>
-          )) // <- Faltava fechar aqui
+          ))
         )}
       </View>
 
-      {/* Botão de Registar Conclusão */}
+      {/* Botão de Registar Conclusão Normal */}
       {tasks.length > 0 && (
         <TouchableOpacity
           style={styles.buttonDone}
-          onPress={() => {
-            const selectedTask = tasks.find(t => t.completed);
-            if (selectedTask) {
-              atualizaTask(selectedTask.id);
-            } else {
-              Alert.alert('Atenção', 'Ativa o botão de pelo menos uma tarefa para marcar como concluída.');
-            }
-          }}
+          onPress={concluiTarefasSelecionadas}
+          activeOpacity={0.8}
         >
           <Ionicons name="checkmark-circle" size={22} color="#fff" />
           <Text style={styles.buttonDoneText}>Marcar Limpeza como Concluída</Text>
@@ -192,12 +225,30 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   badgeText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
-  roommateName: { color: '#fff', fontSize: 24, fontWeight: 'bold', marginBottom: 4 },
+  roommateName: {
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
   roomName: { color: '#e0e7ff', fontSize: 16, marginBottom: 8 },
-  deadline: { color: '#c7d2fe', fontSize: 13 },
-  sectionContainer: { marginBottom: 24 },
-  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#1e293b', marginBottom: 12 },
-  emptyText: { color: '#94a3b8', fontSize: 15, fontStyle: 'italic', marginTop: 8 },
+  sectionContainer: {
+    marginBottom: 24,
+    paddingHorizontal: 4,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1e293b',
+    marginBottom: 12,
+  },
+  emptyText: {
+    color: '#94a3b8',
+    fontSize: 15,
+    fontStyle: 'italic',
+    marginTop: 8,
+    textAlign: 'center',
+  },
   taskItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -210,6 +261,12 @@ const styles = StyleSheet.create({
   },
   taskText: { marginLeft: 12, fontSize: 15, color: '#334155' },
   taskCompleted: { textDecorationLine: 'line-through', color: '#94a3b8' },
+  slideContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    marginBottom: 32,
+  },
   buttonDone: {
     backgroundColor: '#10b981',
     flexDirection: 'row',
@@ -217,11 +274,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     borderRadius: 14,
+    marginTop: 8,
+    marginBottom: 32,
     shadowColor: '#10b981',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 3,
   },
-  buttonDoneText: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginLeft: 8 },
+  buttonDoneText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
 });
