@@ -41,16 +41,21 @@ export default function HomeScreen() {
   }, []);
 
   async function carregarDadosDoUtilizador() {
+    // 1. Obtém a sessão e o utilizador atual do Supabase
     const {
       data: { user },
       error: authError,
     } = await supabase.auth.getUser();
 
+    // Se não houver utilizador válido ou houver erro, limpa os dados antigos de imediato
     if (authError || !user) {
-      console.error('Erro ao obter utilizador autenticado:', authError);
+      console.error('Sem sessão ativa ou erro de autenticação:', authError);
+      setDadosCliente(null);
+      setTasks([]);
       return;
     }
 
+    // 2. Procura os dados do cliente correspondente ao ID (UUID)
     const { data: clienteData, error: clienteError } = await supabase
       .from('customer')
       .select('id, name, room, cleanliness_status')
@@ -58,13 +63,16 @@ export default function HomeScreen() {
       .single();
 
     if (clienteError) {
-      console.error('Erro ao procurar cliente:', clienteError);
+      console.error('Erro ao procurar dados do cliente:', clienteError);
+      setDadosCliente(null);
+      setTasks([]);
     } else if (clienteData) {
+      // Seta os dados do utilizador correto
       setDadosCliente(clienteData);
+      // Carrega unicamente as tarefas associadas a este ID
       await carregarTarefasDoCliente(user.id);
     }
   }
-
   const onRefresh1 = useCallback(async () => {
     setRefreshing1(true);
     await carregarDadosDoUtilizador();

@@ -35,40 +35,57 @@ async function handleSignUp() {
     return;
   }
 
-  setLoading(true);
+  try {
+    setLoading(true);
 
-  // Regista a conta e envia o nome e o quarto nos metadados para a Trigger ler
-  const { data, error } = await supabase.auth.signUp({
-    email: email.trim(),
-    password,
-    options: {
-      data: {
-        name: name.trim(),
-        room: parseInt(room, 10),
-        cleanliness_status: 'Nao concluido', // Valor inicial para o status de limpeza
-
+    // 1. Cria a conta no Supabase Auth passando também os metadados do utilizador
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: {
+        data: {
+          full_name: name.trim(),
+        },
       },
-    },
-  });
+    });
 
-  setLoading(false);
+    if (authError) {
+      Alert.alert('Erro no Registo', authError.message);
+      return;
+    }
 
-  if (error) {
-    Alert.alert('Erro no Registo', error.message);
-        setEmail('');
-        setPassword('');
-        setName('');
-        setRoom('');
-  } else {
-    Alert.alert('Sucesso 🎉', 'Conta criada com sucesso!', [
-      {
-        text: 'Continuar',
-        onPress: () => router.replace('/'),
-      },
-    ]);
+    // 2. Guarda ou atualiza na tabela 'customer' com .upsert()
+    if (authData.user) {
+      const { error: dbError } = await supabase.from('customer').upsert([
+        {
+          id: authData.user.id,
+          name: name.trim(),
+          room: parseInt(room, 10),
+          cleanliness_status: 'nao concluido',
+        },
+      ]);
+
+      if (dbError) {
+        console.error('Erro ao guardar dados do cliente:', dbError);
+        Alert.alert(
+          'Aviso',
+          'Conta criada, mas ocorreu um erro ao guardar os detalhes do perfil.'
+        );
+      } else {
+        Alert.alert('Sucesso 🎉', 'Conta criada com sucesso!', [
+          {
+            text: 'Continuar',
+            onPress: () => router.replace('/'),
+          },
+        ]);
+      }
+    }
+  } catch (error) {
+    Alert.alert('Erro', 'Ocorreu um erro inesperado ao criar a conta.');
+  } finally {
+    setLoading(false);
   }
 }
-
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -9,7 +9,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '../database/supabase';
 
 interface UserProfile {
@@ -22,18 +22,43 @@ export default function ProfileScreen() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Recarrega os dados do utilizador sempre que o ecrã ganha foco
+  useFocusEffect(
+    useCallback(() => {
+      carregarPerfil();
+    }, [])
+  );
+
   useEffect(() => {
-    carregarPerfil();
+    // Escuta mudanças no estado de autenticação
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || !session) {
+        setUser(null);
+      } else if (event === 'SIGNED_IN' && session) {
+        carregarPerfil();
+      }
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
   }, []);
 
   async function carregarPerfil() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      setUser({
-        email: user.email,
-        id: user.id,
-      });
+    const {
+      data: { user: currentUser },
+      error,
+    } = await supabase.auth.getUser();
+
+    if (error || !currentUser) {
+      setUser(null);
+      return;
     }
+
+    setUser({
+      email: currentUser.email,
+      id: currentUser.id,
+    });
   }
 
   async function handleLogout() {
@@ -53,6 +78,8 @@ export default function ProfileScreen() {
             if (error) {
               Alert.alert('Erro', 'Não foi possível terminar a sessão.');
             } else {
+              // Limpa explicitamente o estado do utilizador antes de redirecionar
+              setUser(null);
               router.replace('/login');
             }
           },
