@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -41,71 +41,94 @@ export default function EscalaScreen() {
     }, [])
   );
 
-  async function carregarTodasEscalas() {
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+ async function carregarTodasEscalas() {
+  try {
+    setLoading(true);
 
-      if (!user) return;
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-      // 1. Procura a casa do utilizador logado
-      const { data: meuPerfil } = await supabase
-        .from('customer')
-        .select('house_id')
-        .eq('id', user.id)
-        .single();
+    if (!user) {
+      setEscalas([]);
+      setLoading(false);
+      return;
+    }
 
-      if (!meuPerfil?.house_id) {
-        setEscalas([]);
-        setLoading(false);
-        return;
-      }
+    // 1. Obtém o house_id do utilizador logado
+    const { data: meuPerfil, error: perfilError } = await supabase
+      .from('customer')
+      .select('house_id')
+      .eq('id', user.id)
+      .maybeSingle();
 
-      // 2. Procura apenas as tarefas de moradores da MESMA casa
-      const { data, error } = await supabase
-        .from('task')
-        .select(`
+    if (perfilError || !meuPerfil?.house_id) {
+      setEscalas([]);
+      setLoading(false);
+      return;
+    }
+
+    // 2. Obtém todos os moradores da mesma casa
+    const { data: moradores, error: moradoresError } = await supabase
+      .from('customer')
+      .select('id, name, room, house_id')
+      .eq('house_id', meuPerfil.house_id);
+
+    if (moradoresError || !moradores || moradores.length === 0) {
+      setEscalas([]);
+      setLoading(false);
+      return;
+    }
+
+    // Mapeia os moradores num objeto para consulta rápida por ID
+    const moradoresMap = new Map(moradores.map((m) => [m.id, m]));
+    const idsMoradores = moradores.map((m) => m.id);
+
+    // 3. Procura as tarefas e o tipo de limpeza (sem join automático com customer para evitar o conflito)
+    const { data: tarefas, error: tarefasError } = await supabase
+      .from('task')
+      .select(`
+        id,
+        scheduled_at,
+        status,
+        customer_id,
+        cleaning_type:cleaning_type_id (
           id,
-          scheduled_at,
-          status,
-          customer_id,
-          customer:customer_id!inner (
-            id,
-            name,
-            room,
-            house_id
-          ),
-          cleaning_type:cleaning_type_id (
-            id,
-            type
-          )
-        `)
-        .eq('customer.house_id', meuPerfil.house_id)
-        .order('scheduled_at', { ascending: true });
+          type
+        )
+      `)
+      .in('customer_id', idsMoradores)
+      .order('scheduled_at', { ascending: true });
 
-      if (error) throw error;
+    if (tarefasError) {
+      console.error('Erro na query de tarefas:', tarefasError.message);
+      setEscalas([]);
+      return;
+    }
 
-      const formatado: EscalaItem[] = (data || []).map((item: any) => ({
+    // 4. Junta os dados do morador com cada tarefa manualmente
+    const formatado: EscalaItem[] = (tarefas || []).map((item: any) => {
+      const morador = moradoresMap.get(item.customer_id) || null;
+      return {
         id: item.id,
         scheduled_at: item.scheduled_at,
         status: item.status,
         customer_id: item.customer_id,
-        customer: Array.isArray(item.customer) ? item.customer[0] : item.customer,
+        customer: morador,
         cleaning_type: Array.isArray(item.cleaning_type)
           ? item.cleaning_type[0]
           : item.cleaning_type,
-      }));
+      };
+    });
 
-      setEscalas(formatado);
-    } catch (error: any) {
-      console.error('Erro ao carregar escala:', error);
-      Alert.alert('Erro', 'Não foi possível carregar a escala da casa.');
-    } finally {
-      setLoading(false);
-    }
+    setEscalas(formatado);
+  } catch (error: any) {
+    console.error('Erro inesperado ao carregar escala:', error);
+    Alert.alert('Aviso', 'Não foi possível carregar a escala da casa.');
+  } finally {
+    setLoading(false);
   }
-
+}
   const solicitarTroca = async (item: EscalaItem) => {
     try {
       const {
@@ -191,7 +214,7 @@ export default function EscalaScreen() {
             <Text style={styles.emptyText}>Nenhuma escala agendada para a casa.</Text>
           </View>
         ) : (
-          escalas.map(item => (
+          escalas.map((item) => (
             <View key={item.id} style={styles.escalaCard}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.diaText}>{formatarData(item.scheduled_at)}</Text>

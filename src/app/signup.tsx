@@ -10,7 +10,6 @@ import {
   ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../database/supabase';
 
 export default function SignUpScreen() {
@@ -69,7 +68,7 @@ export default function SignUpScreen() {
         if (houseError) throw houseError;
         targetHouseId = houseData.id;
       } else {
-        // 2B. Procurar casa pelo código
+        // 2B. Procurar casa existente pelo código
         const { data: houseData, error: houseError } = await supabase
           .from('house')
           .select('id')
@@ -77,23 +76,26 @@ export default function SignUpScreen() {
           .single();
 
         if (houseError || !houseData) {
-          Alert.alert('Erro', 'Código de casa não encontrado.');
+          Alert.alert('Erro', 'Código de casa não encontrado. Confirma se o código está correto.');
           setLoading(false);
           return;
         }
         targetHouseId = houseData.id;
       }
 
-      // 3. Regista o perfil na tabela customer
-      const { error: customerError } = await supabase.from('customer').insert([
-        {
-          id: authData.user.id,
-          name,
-          room: Number(room),
-          house_id: targetHouseId,
-          cleanliness_status: 'limpo',
-        },
-      ]);
+      // 3. Regista ou atualiza o perfil na tabela customer (utilizando upsert)
+      const { error: customerError } = await supabase.from('customer').upsert(
+        [
+          {
+            id: authData.user.id,
+            name,
+            room: Number(room),
+            house_id: targetHouseId,
+            cleanliness_status: 'limpo',
+          },
+        ],
+        { onConflict: 'id' }
+      );
 
       if (customerError) throw customerError;
 
@@ -137,7 +139,6 @@ export default function SignUpScreen() {
 
       <View style={styles.inputGroup}>
         <Text style={styles.label}>E-mail</Text>
-
         <TextInput
           style={styles.input}
           placeholder="exemplo@email.com"
@@ -159,7 +160,7 @@ export default function SignUpScreen() {
         />
       </View>
 
-      {/* Opções de Casa */}
+      {/* Alternador entre Criar ou Entrar em Casa */}
       <View style={styles.tabContainer}>
         <TouchableOpacity
           style={[styles.tabButton, isCreatingHouse && styles.tabActive]}

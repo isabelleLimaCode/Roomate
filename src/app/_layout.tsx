@@ -170,7 +170,7 @@ export default function TabLayout() {
             fontWeight: 'bold',
           },
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="notifications-outline" size={size} color={color} />
+            <Ionicons name="alert" size={size} color={color} />
           ),
         }}
       />
