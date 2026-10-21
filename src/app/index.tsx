@@ -9,8 +9,8 @@ import {
   RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from 'expo-router';
 import { supabase } from '../database/supabase';
-import SlideButton from '../components/SlideButton';
 
 interface Task {
   id: number;
@@ -36,26 +36,47 @@ export default function HomeScreen() {
   const [refreshing1, setRefreshing1] = useState(false);
   const [dadosCliente, setDadosCliente] = useState<NomeCliente | null>(null);
 
+  // 1. Recarrega os dados do utilizador atual sempre que a página ganha foco
+  useFocusEffect(
+    useCallback(() => {
+      carregarDadosDoUtilizador();
+    }, [])
+  );
+
+  // utiliza o onAuthAStateChange para verificar se há algum utilizador autenticado
   useEffect(() => {
-    carregarDadosDoUtilizador();
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || !session) {
+        setDadosCliente(null);
+        setTasks([]);
+      } else if (event === 'SIGNED_IN' && session) {
+        carregarDadosDoUtilizador();
+      }
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
   }, []);
 
   async function carregarDadosDoUtilizador() {
-    // 1. Obtém a sessão e o utilizador atual do Supabase
+    // Limpa os dados anteriores de imediato para não mostrar cache da conta antiga
+    setDadosCliente(null);
+    setTasks([]);
+
+    // Obtém a sessão e o utilizador atual do Supabase
     const {
       data: { user },
       error: authError,
     } = await supabase.auth.getUser();
 
-    // Se não houver utilizador válido ou houver erro, limpa os dados antigos de imediato
+    // Se não houver utilizador válido ou houver erro, para a execução
     if (authError || !user) {
       console.error('Sem sessão ativa ou erro de autenticação:', authError);
-      setDadosCliente(null);
-      setTasks([]);
       return;
     }
 
-    // 2. Procura os dados do cliente correspondente ao ID (UUID)
+    // Procura os dados do cliente correspondente ao ID (UUID)
     const { data: clienteData, error: clienteError } = await supabase
       .from('customer')
       .select('id, name, room, cleanliness_status')
@@ -64,15 +85,12 @@ export default function HomeScreen() {
 
     if (clienteError) {
       console.error('Erro ao procurar dados do cliente:', clienteError);
-      setDadosCliente(null);
-      setTasks([]);
     } else if (clienteData) {
-      // Seta os dados do utilizador correto
       setDadosCliente(clienteData);
-      // Carrega unicamente as tarefas associadas a este ID
       await carregarTarefasDoCliente(user.id);
     }
   }
+
   const onRefresh1 = useCallback(async () => {
     setRefreshing1(true);
     await carregarDadosDoUtilizador();
@@ -99,6 +117,7 @@ export default function HomeScreen() {
 
     if (error) {
       console.error('Erro ao procurar tarefas:', error);
+      setTasks([]);
     } else {
       const tarefasFormatadas = (data || []).map((item: any) => ({
         ...item,
@@ -121,7 +140,7 @@ export default function HomeScreen() {
     if (selectedIds.length === 0) {
       Alert.alert(
         'Atenção',
-        'Seleciona pelo menos uma tarefa antes de deslizar.'
+        'Seleciona pelo menos uma tarefa antes de concluir.'
       );
       return;
     }
@@ -269,12 +288,6 @@ const styles = StyleSheet.create({
   },
   taskText: { marginLeft: 12, fontSize: 15, color: '#334155' },
   taskCompleted: { textDecorationLine: 'line-through', color: '#94a3b8' },
-  slideContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
-    marginBottom: 32,
-  },
   buttonDone: {
     backgroundColor: '#10b981',
     flexDirection: 'row',
