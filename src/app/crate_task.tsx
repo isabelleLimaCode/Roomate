@@ -28,10 +28,9 @@ interface CleaningType {
 export default function CreateTaskScreen() {
   const router = useRouter();
 
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [currentCustomer, setCurrentCustomer] = useState<Customer | null>(null);
   const [cleaningTypes, setCleaningTypes] = useState<CleaningType[]>([]);
 
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [selectedCleaningTypeId, setSelectedCleaningTypeId] = useState<number | null>(null);
   const [scheduledAt, setScheduledAt] = useState<Date>(new Date());
 
@@ -46,21 +45,35 @@ export default function CreateTaskScreen() {
   async function carregarDadosFormulario() {
     setFetchingData(true);
     try {
-      // 1. Procura a lista de clientes / roommates
+      // 1. Obtém o utilizador logado
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        Alert.alert('Erro', 'Sessão inválida. Por favor, inicia sessão novamente.');
+        router.back();
+        return;
+      }
+
+      // 2. Procura os dados do roommate logado
       const { data: customerData, error: customerError } = await supabase
         .from('customer')
-        .select('id, name, room');
+        .select('id, name, room')
+        .eq('id', user.id)
+        .single();
 
       if (customerError) throw customerError;
 
-      // 2. Procura os tipos de limpeza disponíveis
+      // 3. Procura os tipos de limpeza
       const { data: typeData, error: typeError } = await supabase
         .from('cleaning_type')
         .select('id, type');
 
       if (typeError) throw typeError;
 
-      setCustomers(customerData || []);
+      setCurrentCustomer(customerData);
       setCleaningTypes(typeData || []);
     } catch (error: any) {
       console.error('Erro ao carregar dados:', error);
@@ -71,8 +84,8 @@ export default function CreateTaskScreen() {
   }
 
   async function handleCreateTask() {
-    if (!selectedCustomerId) {
-      Alert.alert('Atenção', 'Por favor, seleciona o roommate responsável.');
+    if (!currentCustomer) {
+      Alert.alert('Erro', 'Utilizador não identificado.');
       return;
     }
 
@@ -83,28 +96,57 @@ export default function CreateTaskScreen() {
 
     setLoading(true);
 
-    // Insere a nova tarefa na tabela 'task'
-    const { error } = await supabase.from('task').insert([
-      {
-        scheduled_at: scheduledAt.toISOString(),
-        status: 'nao terminou', // Estado inicial por padrão
-        customer_id: selectedCustomerId,
-        cleaning_type_id: selectedCleaningTypeId,
-      },
-    ]);
+    try {
+      // 1. Define o início (00:00:00) e o fim (23:59:59) do dia selecionado
+      const inicioDoDia = new Date(scheduledAt);
+      inicioDoDia.setHours(0, 0, 0, 0);
 
-    setLoading(false);
+      const fimDoDia = new Date(scheduledAt);
+      fimDoDia.setHours(23, 59, 59, 999);
 
-    if (error) {
-      console.error('Erro detalhado do Supabase:', JSON.stringify(error, null, 2));
-      Alert.alert('Erro', `Falha ao guardar: ${error.message}`);
-    } else {
-      Alert.alert('Sucesso 🎉', 'Tarefa criada e atribuída com sucesso!', [
+      // 2. Consulta o Supabase se já existe a MESMA limpeza agendada nesse dia
+      const { data: tarefasExistentes, error: checkError } = await supabase
+        .from('task')
+        .select('id')
+        .eq('cleaning_type_id', selectedCleaningTypeId)
+        .gte('scheduled_at', inicioDoDia.toISOString())
+        .lte('scheduled_at', fimDoDia.toISOString());
+
+      if (checkError) throw checkError;
+
+      // Se encontrar qualquer registo no mesmo dia, bloqueia a criação
+      if (tarefasExistentes && tarefasExistentes.length > 0) {
+        Alert.alert(
+          'Data Ocupada ⚠️',
+          'Já existe uma limpeza deste tipo agendada para este dia. Escolhe outra data ou outro tipo de limpeza.'
+        );
+        setLoading(false);
+        return;
+      }
+
+      // 3. Insere a nova tarefa caso a data esteja livre
+      const { error: insertError } = await supabase.from('task').insert([
+        {
+          scheduled_at: scheduledAt.toISOString(),
+          status: 'nao terminou',
+          customer_id: currentCustomer.id,
+          cleaning_type_id: selectedCleaningTypeId,
+        },
+      ]);
+
+      if (insertError) throw insertError;
+
+      Alert.alert('Sucesso 🎉', 'A tua tarefa foi criada e agendada!', [
         {
           text: 'OK',
           onPress: () => router.back(),
         },
       ]);
+    } catch (error: any) {
+      console.error('Erro ao guardar tarefa:', error);
+      Alert.alert('Erro', `Falha ao guardar: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -126,35 +168,18 @@ export default function CreateTaskScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-     
-
       <Text style={styles.title}>Criar Nova Tarefa</Text>
-      <Text style={styles.subtitle}>Atribui uma tarefa de limpeza a um roommate</Text>
+      <Text style={styles.subtitle}>Agenda o teu próximo turno de limpeza</Text>
 
-      {/* 1. Seleção do Roommate */}
+      {/* 1. Responsável (Utilizador Logado) */}
       <View style={styles.section}>
-        <Text style={styles.label}>1. Seleciona o Roommate</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalList}>
-          {customers.map(c => {
-            const isSelected = selectedCustomerId === c.id;
-            return (
-              <TouchableOpacity
-                key={c.id}
-                style={[styles.chip, isSelected && styles.chipSelected]}
-                onPress={() => setSelectedCustomerId(c.id)}
-              >
-                <Ionicons
-                  name="person-outline"
-                  size={18}
-                  color={isSelected ? '#fff' : '#64748b'}
-                />
-                <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>
-                  {c.name} (Quarto {c.room})
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+        <Text style={styles.label}>1. Responsável</Text>
+        <View style={[styles.chip, styles.chipSelected]}>
+          <Ionicons name="person" size={18} color="#fff" />
+          <Text style={[styles.chipText, styles.chipTextSelected]}>
+            {currentCustomer?.name} (Quarto {currentCustomer?.room})
+          </Text>
+        </View>
       </View>
 
       {/* 2. Seleção do Tipo de Limpeza */}
@@ -199,6 +224,7 @@ export default function CreateTaskScreen() {
             value={scheduledAt}
             mode="datetime"
             display="default"
+            minimumDate={new Date()}
             onChange={onChangeDate}
           />
         )}
@@ -215,7 +241,7 @@ export default function CreateTaskScreen() {
         ) : (
           <>
             <Ionicons name="add-circle-outline" size={22} color="#fff" />
-            <Text style={styles.saveButtonText}>Guardar Tarefa</Text>
+            <Text style={styles.saveButtonText}>Guardar Minha Tarefa</Text>
           </>
         )}
       </TouchableOpacity>
@@ -228,24 +254,15 @@ const styles = StyleSheet.create({
   contentContainer: { padding: 20 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8fafc' },
   loadingText: { marginTop: 12, color: '#64748b', fontSize: 15 },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#e2e8f0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
   title: { fontSize: 26, fontWeight: 'bold', color: '#1e293b' },
   subtitle: { fontSize: 14, color: '#64748b', marginBottom: 24, marginTop: 4 },
   section: { marginBottom: 24 },
   label: { fontSize: 16, fontWeight: 'bold', color: '#334155', marginBottom: 12 },
-  horizontalList: { flexDirection: 'row' },
   wrapContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#cbd5e1',

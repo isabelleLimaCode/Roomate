@@ -17,13 +17,16 @@ interface EscalaItem {
   id: number;
   scheduled_at: string;
   status: string;
+  customer_id?: string;
   customer?: {
+    id?: string;
     name: string;
     room: number;
+    house_id?: string;
   } | null;
   cleaning_type?: {
+    id?: number;
     type: string;
-    room_number?: number;
   } | null;
 }
 
@@ -32,81 +35,69 @@ export default function EscalaScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Recarrega os dados automaticamente sempre que o ecrã ganha foco
   useFocusEffect(
     useCallback(() => {
       carregarTodasEscalas();
     }, [])
   );
 
-  useEffect(() => {
-    // Escuta mudanças de sessão para limpar/recarregar os dados imediatamente
-    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_OUT' || !session) {
-        setEscalas([]);
-      } else if (event === 'SIGNED_IN' && session) {
-        carregarTodasEscalas();
-      }
-    });
-
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
-  }, []);
-
   async function carregarTodasEscalas() {
     try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) return;
+
+      // 1. Procura a casa do utilizador logado
+      const { data: meuPerfil } = await supabase
+        .from('customer')
+        .select('house_id')
+        .eq('id', user.id)
+        .single();
+
+      if (!meuPerfil?.house_id) {
+        setEscalas([]);
+        setLoading(false);
+        return;
+      }
+
+      // 2. Procura apenas as tarefas de moradores da MESMA casa
       const { data, error } = await supabase
         .from('task')
         .select(`
           id,
           scheduled_at,
           status,
-          customer!inner (
+          customer_id,
+          customer:customer_id!inner (
             id,
             name,
-            room
+            room,
+            house_id
           ),
-          cleaning_type (
+          cleaning_type:cleaning_type_id (
             id,
-            type,
-            room_number
+            type
           )
         `)
+        .eq('customer.house_id', meuPerfil.house_id)
         .order('scheduled_at', { ascending: true });
 
-      if (error) {
-        // Fallback caso a FK com o nome 'customer' use uma sintaxe alternativa
-        console.warn('Tentando busca alternativa sem alias de FK:', error.message);
-        
-        const { data: fallbackData, error: fallbackError } = await supabase
-          .from('task')
-          .select(`
-            id,
-            scheduled_at,
-            status,
-            customer_id,
-            cleaning_type_id,
-            cleaning_type ( type )
-          `)
-          .order('scheduled_at', { ascending: true });
+      if (error) throw error;
 
-        if (fallbackError) throw fallbackError;
+      const formatado: EscalaItem[] = (data || []).map((item: any) => ({
+        id: item.id,
+        scheduled_at: item.scheduled_at,
+        status: item.status,
+        customer_id: item.customer_id,
+        customer: Array.isArray(item.customer) ? item.customer[0] : item.customer,
+        cleaning_type: Array.isArray(item.cleaning_type)
+          ? item.cleaning_type[0]
+          : item.cleaning_type,
+      }));
 
-        // Procura os clientes separadamente se as FKs automáticas do PostgREST falharem
-        const { data: clientes } = await supabase.from('customer').select('id, name, room');
-        const clientesMap = new Map(clientes?.map(c => [c.id, c]));
-
-        const formatado = (fallbackData || []).map((t: any) => ({
-          ...t,
-          customer: clientesMap.get(t.customer_id) || null,
-        }));
-
-        setEscalas(formatado as unknown as EscalaItem[]);
-        return;
-      }
-
-      setEscalas((data as unknown as EscalaItem[]) || []);
+      setEscalas(formatado);
     } catch (error: any) {
       console.error('Erro ao carregar escala:', error);
       Alert.alert('Erro', 'Não foi possível carregar a escala da casa.');
@@ -114,6 +105,48 @@ export default function EscalaScreen() {
       setLoading(false);
     }
   }
+
+  const solicitarTroca = async (item: EscalaItem) => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        Alert.alert('Erro', 'Precisas de estar autenticado.');
+        return;
+      }
+
+      const donoDoTurnoId = item.customer?.id || item.customer_id;
+
+      if (user.id === donoDoTurnoId) {
+        Alert.alert('Atenção', 'Não podes pedir troca do teu próprio turno.');
+        return;
+      }
+
+      if (!donoDoTurnoId) {
+        Alert.alert('Erro', 'Não foi possível identificar o morador deste turno.');
+        return;
+      }
+
+      const { error } = await supabase.from('shift_exchange').insert([
+        {
+          task_id: item.id,
+          requester_id: user.id,
+          receiver_id: donoDoTurnoId,
+          status: 'pendente',
+        },
+      ]);
+
+      if (error) throw error;
+
+      Alert.alert('Sucesso 🚀', `Pedido de troca enviado a ${item.customer?.name || 'morador'}!`);
+    } catch (error: any) {
+      console.error('Erro ao pedir troca:', error);
+      Alert.alert('Erro', 'Não foi possível enviar o pedido de troca.');
+    }
+  };
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await carregarTodasEscalas();
@@ -145,13 +178,11 @@ export default function EscalaScreen() {
           />
         }
       >
-        {/* Cabeçalho */}
         <View style={styles.headerContainer}>
-          <Text style={styles.headerTitle}>Escala Global</Text>
-          <Text style={styles.headerSubtitle}>Próximos turnos da casa</Text>
+          <Text style={styles.headerTitle}>Escala da Casa</Text>
+          <Text style={styles.headerSubtitle}>Próximos turnos dos teus colegas</Text>
         </View>
 
-        {/* Indicador de Carregamento */}
         {loading ? (
           <ActivityIndicator size="large" color="#6366f1" style={{ marginTop: 32 }} />
         ) : escalas.length === 0 ? (
@@ -160,7 +191,6 @@ export default function EscalaScreen() {
             <Text style={styles.emptyText}>Nenhuma escala agendada para a casa.</Text>
           </View>
         ) : (
-          /* Lista de Turnos Agendados */
           escalas.map(item => (
             <View key={item.id} style={styles.escalaCard}>
               <View style={{ flex: 1 }}>
@@ -185,12 +215,7 @@ export default function EscalaScreen() {
                 </View>
               </View>
 
-              <TouchableOpacity
-                style={styles.trocarBtn}
-                onPress={() =>
-                  alert(`Solicitar troca de turno com ${item.customer?.name || 'este morador'}?`)
-                }
-              >
+              <TouchableOpacity style={styles.trocarBtn} onPress={() => solicitarTroca(item)}>
                 <Ionicons name="swap-horizontal" size={18} color="#6366f1" />
                 <Text style={styles.trocarText}>Trocar</Text>
               </TouchableOpacity>
@@ -205,9 +230,7 @@ export default function EscalaScreen() {
 const styles = StyleSheet.create({
   outerContainer: { flex: 1, backgroundColor: '#f8fafc' },
   container: { flex: 1, padding: 16 },
-  headerContainer: {
-    marginBottom: 20,
-  },
+  headerContainer: { marginBottom: 20 },
   headerTitle: { fontSize: 22, fontWeight: 'bold', color: '#1e293b' },
   headerSubtitle: { fontSize: 14, color: '#64748b', marginTop: 2 },
   escalaCard: {
@@ -220,19 +243,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
   },
-  diaText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#6366f1',
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
+  diaText: { fontSize: 12, fontWeight: 'bold', color: '#6366f1', textTransform: 'uppercase', marginBottom: 4 },
   nomeText: { fontSize: 16, fontWeight: 'bold', color: '#1e293b', marginBottom: 2 },
   comodoText: { fontSize: 13, color: '#64748b' },
   statusBadge: { marginTop: 6 },

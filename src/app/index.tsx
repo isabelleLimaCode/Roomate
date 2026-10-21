@@ -43,7 +43,7 @@ export default function HomeScreen() {
     }, [])
   );
 
-  // utiliza o onAuthAStateChange para verificar se há algum utilizador autenticado
+  // Verifica eventos de autenticação
   useEffect(() => {
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT' || !session) {
@@ -60,23 +60,19 @@ export default function HomeScreen() {
   }, []);
 
   async function carregarDadosDoUtilizador() {
-    // Limpa os dados anteriores de imediato para não mostrar cache da conta antiga
     setDadosCliente(null);
     setTasks([]);
 
-    // Obtém a sessão e o utilizador atual do Supabase
     const {
       data: { user },
       error: authError,
     } = await supabase.auth.getUser();
 
-    // Se não houver utilizador válido ou houver erro, para a execução
     if (authError || !user) {
       console.error('Sem sessão ativa ou erro de autenticação:', authError);
       return;
     }
 
-    // Procura os dados do cliente correspondente ao ID (UUID)
     const { data: clienteData, error: clienteError } = await supabase
       .from('customer')
       .select('id, name, room, cleanliness_status')
@@ -184,38 +180,75 @@ export default function HomeScreen() {
         </Text>
       </View>
 
-      {/* Lista de Tarefas do Cômodo */}
+      {/* Lista de Tarefas Organizada */}
       <View style={styles.sectionContainer}>
         <Text style={styles.sectionTitle}>Checklist de Limpeza</Text>
+
         {tasks.length === 0 ? (
           <Text style={styles.emptyText}>Sem tarefas pendentes para hoje 🎉</Text>
         ) : (
           tasks.map(task => (
             <TouchableOpacity
               key={task.id}
-              style={styles.taskItem}
+              style={styles.taskCard}
               onPress={() => toggleTask(task.id)}
               activeOpacity={0.7}
             >
+              {/* Checkbox */}
               <Ionicons
                 name={task.completed ? 'checkbox' : 'square-outline'}
                 size={24}
                 color={task.completed ? '#10b981' : '#94a3b8'}
               />
-              <Text
+
+              {/* Informações (Nome da Limpeza e Hora) */}
+              <View style={styles.taskInfoContainer}>
+                <Text
+                  style={[
+                    styles.taskTitleText,
+                    task.completed && styles.taskCompletedText,
+                  ]}
+                >
+                  {task.cleaning_type?.type || 'Limpeza Geral'}
+                </Text>
+
+                <View style={styles.taskTimeRow}>
+                  <Ionicons name="time-outline" size={14} color="#64748b" />
+                  <Text style={styles.taskTimeText}>
+                    {new Date(task.scheduled_at).toLocaleTimeString('pt-PT', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Badge de Estado */}
+              <View
                 style={[
-                  styles.taskText,
-                  task.completed && styles.taskCompleted,
+                  styles.statusBadge,
+                  task.completed || task.status === 'concluído'
+                    ? styles.statusBadgeConcluido
+                    : styles.statusBadgePendente,
                 ]}
               >
-                {task.cleaning_type?.type || 'Limpeza Geral'}
-              </Text>
+                <Text
+                  style={[
+                    styles.statusText,
+                    task.completed || task.status === 'concluído'
+                      ? styles.statusTextConcluido
+                      : styles.statusTextPendente,
+                  ]}
+                >
+                  {task.completed || task.status === 'concluído' ? 'Concluído' : 'Pendente'}
+                </Text>
+              </View>
             </TouchableOpacity>
           ))
         )}
       </View>
 
-      {/* Botão de Registar Conclusão Normal */}
+      {/* Botão de Conclusão */}
       {tasks.length > 0 && (
         <TouchableOpacity
           style={styles.buttonDone}
@@ -276,18 +309,67 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
   },
-  taskItem: {
+  taskCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
     padding: 14,
-    borderRadius: 12,
-    marginBottom: 8,
+    borderRadius: 14,
+    marginBottom: 10,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   },
-  taskText: { marginLeft: 12, fontSize: 15, color: '#334155' },
-  taskCompleted: { textDecorationLine: 'line-through', color: '#94a3b8' },
+  taskInfoContainer: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  taskTitleText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1e293b',
+  },
+  taskCompletedText: {
+    textDecorationLine: 'line-through',
+    color: '#94a3b8',
+  },
+  taskTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3,
+  },
+  taskTimeText: {
+    fontSize: 12,
+    color: '#64748b',
+    marginLeft: 4,
+  },
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  statusBadgeConcluido: {
+    backgroundColor: '#d1fae5',
+  },
+  statusBadgePendente: {
+    backgroundColor: '#fef3c7',
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  statusTextConcluido: {
+    color: '#059669',
+  },
+  statusTextPendente: {
+    color: '#d97706',
+  },
   buttonDone: {
     backgroundColor: '#10b981',
     flexDirection: 'row',

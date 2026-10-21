@@ -5,284 +5,254 @@ import {
   View,
   TextInput,
   TouchableOpacity,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   Alert,
+  ActivityIndicator,
   ScrollView,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-// Importamos o hook para lidar com a Safe Area
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../database/supabase';
 
 export default function SignUpScreen() {
   const router = useRouter();
-  // Obtemos as medidas da Safe Area (topo, baixo, esquerda, direita)
-  const insets = useSafeAreaInsets();
 
-  const [name, setName] = useState('');
-  const [room, setRoom] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [name, setName] = useState('');
+  const [room, setRoom] = useState('');
+
+  // Estados da Casa
+  const [isCreatingHouse, setIsCreatingHouse] = useState(true);
+  const [houseName, setHouseName] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+
   const [loading, setLoading] = useState(false);
 
-async function handleSignUp() {
-  if (!name || !room || !email || !password) {
-    Alert.alert('Atenção', 'Por favor, preenche todos os campos.');
-    return;
-  }
-
-  try {
-    setLoading(true);
-
-    // 1. Cria a conta no Supabase Auth passando também os metadados do utilizador
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-      options: {
-        data: {
-          full_name: name.trim(),
-        },
-      },
-    });
-
-    if (authError) {
-      Alert.alert('Erro no Registo', authError.message);
+  async function handleSignUp() {
+    if (!email || !password || !name || !room) {
+      Alert.alert('Atenção', 'Preenche todos os teus dados pessoais.');
       return;
     }
 
-    // 2. Guarda ou atualiza na tabela 'customer' com .upsert()
-    if (authData.user) {
-      const { error: dbError } = await supabase.from('customer').upsert([
+    if (isCreatingHouse && !houseName) {
+      Alert.alert('Atenção', 'Indica o nome da casa.');
+      return;
+    }
+
+    if (!isCreatingHouse && !joinCode) {
+      Alert.alert('Atenção', 'Insere o código de convite da casa.');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // 1. Regista o utilizador no Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+      });
+
+      if (authError || !authData.user) throw authError;
+
+      let targetHouseId: string | null = null;
+
+      if (isCreatingHouse) {
+        // 2A. Criar nova casa
+        const codigoGerado = 'CASA-' + Math.floor(1000 + Math.random() * 9000);
+        const { data: houseData, error: houseError } = await supabase
+          .from('house')
+          .insert([{ name: houseName, join_code: codigoGerado }])
+          .select()
+          .single();
+
+        if (houseError) throw houseError;
+        targetHouseId = houseData.id;
+      } else {
+        // 2B. Procurar casa pelo código
+        const { data: houseData, error: houseError } = await supabase
+          .from('house')
+          .select('id')
+          .eq('join_code', joinCode.trim().toUpperCase())
+          .single();
+
+        if (houseError || !houseData) {
+          Alert.alert('Erro', 'Código de casa não encontrado.');
+          setLoading(false);
+          return;
+        }
+        targetHouseId = houseData.id;
+      }
+
+      // 3. Regista o perfil na tabela customer
+      const { error: customerError } = await supabase.from('customer').insert([
         {
           id: authData.user.id,
-          name: name.trim(),
-          room: parseInt(room, 10),
-          cleanliness_status: 'nao concluido',
+          name,
+          room: Number(room),
+          house_id: targetHouseId,
+          cleanliness_status: 'limpo',
         },
       ]);
 
-      if (dbError) {
-        console.error('Erro ao guardar dados do cliente:', dbError);
-        Alert.alert(
-          'Aviso',
-          'Conta criada, mas ocorreu um erro ao guardar os detalhes do perfil.'
-        );
-      } else {
-        Alert.alert('Sucesso 🎉', 'Conta criada com sucesso!', [
-          {
-            text: 'Continuar',
-            onPress: () => router.replace('/'),
-          },
-        ]);
-      }
+      if (customerError) throw customerError;
+
+      Alert.alert('Sucesso 🎉', 'Conta criada com sucesso!', [
+        { text: 'OK', onPress: () => router.replace('/') },
+      ]);
+    } catch (error: any) {
+      console.error('Erro no registo:', error);
+      Alert.alert('Erro', error.message || 'Falha ao registar conta.');
+    } finally {
+      setLoading(false);
     }
-  } catch (error) {
-    Alert.alert('Erro', 'Ocorreu um erro inesperado ao criar a conta.');
-  } finally {
-    setLoading(false);
   }
-}
+
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
-    >
-      {/* --- NOVA POSIÇÃO DO BOTÃO DE VOLTAR --- */}
-      {/* Usamos insets.top para garantir que ele fique abaixo da barra de status */}
-      <TouchableOpacity
-        style={[styles.backButton, { top: insets.top + 10 }]}
-        onPress={() => router.back()}
-      >
-        <Ionicons name="arrow-back" size={24} color="#1e293b" />
-      </TouchableOpacity>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <Text style={styles.title}>Registar Morador</Text>
+      <Text style={styles.subtitle}>Cria a tua conta e junta-te à tua casa</Text>
 
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
-        {/* Adicionamos um padding extra no topo do scroll para compensar o botão fixo */}
-        <View style={styles.contentWrapper}>
-          <View style={styles.headerContainer}>
-            <Text style={styles.title}>Criar Conta</Text>
-            <Text style={styles.subtitle}>Junta-te aos teus roommates e organiza a casa</Text>
-          </View>
+      {/* Dados Pessoais */}
+      <View style={styles.inputGroup}>
+        <Text style={styles.label}>Nome Completo</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Ex: João Silva"
+          value={name}
+          onChangeText={setName}
+        />
+      </View>
 
-          <View style={styles.formContainer}>
-            {/* Nome */}
-            <View style={styles.inputContainer}>
-              <Ionicons name="person-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Nome Completo"
-                placeholderTextColor="#94a3b8"
-                value={name}
-                onChangeText={setName}
-              />
-            </View>
+      <View style={styles.inputGroup}>
+        <Text style={styles.label}>Nº do Quarto</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Ex: 3"
+          keyboardType="numeric"
+          value={room}
+          onChangeText={setRoom}
+        />
+      </View>
 
-            {/* Quarto */}
-            <View style={styles.inputContainer}>
-              <Ionicons name="bed-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Número do Quarto (ex: 1, 2, 101)"
-                placeholderTextColor="#94a3b8"
-                keyboardType="numeric"
-                value={room}
-                onChangeText={setRoom}
-              />
-            </View>
+      <View style={styles.inputGroup}>
+        <Text style={styles.label}>E-mail</Text>
 
-            {/* Email */}
-            <View style={styles.inputContainer}>
-              <Ionicons name="mail-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Email"
-                placeholderTextColor="#94a3b8"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                value={email}
-                onChangeText={setEmail}
-              />
-            </View>
+        <TextInput
+          style={styles.input}
+          placeholder="exemplo@email.com"
+          autoCapitalize="none"
+          keyboardType="email-address"
+          value={email}
+          onChangeText={setEmail}
+        />
+      </View>
 
-            {/* Password */}
-            <View style={styles.inputContainer}>
-              <Ionicons name="lock-closed-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Palavra-passe"
-                placeholderTextColor="#94a3b8"
-                secureTextEntry={!showPassword}
-                value={password}
-                onChangeText={setPassword}
-              />
-              <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                <Ionicons
-                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                  size={20}
-                  color="#94a3b8"
-                />
-              </TouchableOpacity>
-            </View>
+      <View style={styles.inputGroup}>
+        <Text style={styles.label}>Palavra-passe</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="******"
+          secureTextEntry
+          value={password}
+          onChangeText={setPassword}
+        />
+      </View>
 
-            {/* Botão de Registar */}
-            <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
-              onPress={handleSignUp}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <>
-                  <Text style={styles.buttonText}>Registar</Text>
-                  <Ionicons name="checkmark-circle-outline" size={20} color="#fff" style={styles.buttonIcon} />
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
+      {/* Opções de Casa */}
+      <View style={styles.tabContainer}>
+        <TouchableOpacity
+          style={[styles.tabButton, isCreatingHouse && styles.tabActive]}
+          onPress={() => setIsCreatingHouse(true)}
+        >
+          <Text style={[styles.tabText, isCreatingHouse && styles.tabTextActive]}>
+            Criar Casa
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tabButton, !isCreatingHouse && styles.tabActive]}
+          onPress={() => setIsCreatingHouse(false)}
+        >
+          <Text style={[styles.tabText, !isCreatingHouse && styles.tabTextActive]}>
+            Entrar com Código
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {isCreatingHouse ? (
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Nome da Casa / República</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Ex: Vivenda dos Estudantes"
+            value={houseName}
+            onChangeText={setHouseName}
+          />
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      ) : (
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Código de Convite da Casa</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Ex: CASA-8492"
+            autoCapitalize="characters"
+            value={joinCode}
+            onChangeText={setJoinCode}
+          />
+        </View>
+      )}
+
+      <TouchableOpacity
+        style={[styles.saveButton, loading && styles.buttonDisabled]}
+        onPress={handleSignUp}
+        disabled={loading}
+      >
+        {loading ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.saveButtonText}>Concluir Registo</Text>
+        )}
+      </TouchableOpacity>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8fafc',
-  },
-  scrollContainer: {
-    padding: 24,
-    justifyContent: 'center',
-    flexGrow: 1,
-  },
-  // Wrapper extra para ajustar o layout centralizado dentro do scroll
-  contentWrapper: {
-    width: '100%',
-    justifyContent: 'center',
-    flex: 1,
-    paddingTop: 60, // Dá espaço para o botão fixo no topo
-  },
-  // --- ESTILOS ATUALIZADOS DO BOTÃO DE VOLTAR ---
-  backButton: {
-    position: 'absolute', // Fixa o botão
-    left: 20, // Distância da esquerda
-    zIndex: 10, // Garante que ele fique sobre o ScrollView
-    width: 44, // Tamanho mínimo recomendado para toque (44x44)
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(226, 232, 240, 0.9)', // Fundo ligeiramente transparente
-    justifyContent: 'center',
-    alignItems: 'center',
-    // Adicionamos uma sombra leve para destacar do fundo
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  headerContainer: {
-    marginBottom: 28,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#1e293b',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 15,
-    color: '#64748b',
-  },
-  formContainer: {
-    width: '100%',
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  container: { flex: 1, backgroundColor: '#f8fafc' },
+  content: { padding: 20 },
+  title: { fontSize: 26, fontWeight: 'bold', color: '#1e293b' },
+  subtitle: { fontSize: 14, color: '#64748b', marginBottom: 20, marginTop: 4 },
+  inputGroup: { marginBottom: 16 },
+  label: { fontSize: 14, fontWeight: '600', color: '#334155', marginBottom: 6 },
+  input: {
     backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 16,
+    borderColor: '#cbd5e1',
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 15,
   },
-  inputIcon: {
-    marginRight: 12,
-  },
-  input: {
-    flex: 1,
-    fontSize: 16,
-    color: '#1e293b',
-  },
-  button: {
-    backgroundColor: '#6366f1',
+  tabContainer: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: '#e2e8f0',
+    borderRadius: 10,
+    padding: 4,
+    marginBottom: 16,
+    marginTop: 8,
+  },
+  tabButton: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8 },
+  tabActive: { backgroundColor: '#6366f1' },
+  tabText: { fontWeight: '600', color: '#64748b', fontSize: 13 },
+  tabTextActive: { color: '#fff' },
+  saveButton: {
+    backgroundColor: '#10b981',
     paddingVertical: 16,
     borderRadius: 12,
-    marginTop: 8,
-    shadowColor: '#6366f1',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    alignItems: 'center',
+    marginTop: 12,
+    marginBottom: 40,
   },
-  buttonDisabled: {
-    backgroundColor: '#a5b4fc',
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  buttonIcon: {
-    marginLeft: 8,
-  },
+  buttonDisabled: { backgroundColor: '#a7f3d0' },
+  saveButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 });
