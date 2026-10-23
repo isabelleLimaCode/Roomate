@@ -117,7 +117,7 @@ export default function SignUpScreen() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#f8fafc' , margintop: Platform.OS === 'android' ? 25 : 0}}>
+    <View style={{ flex: 1, backgroundColor: '#f8fafc'}}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -245,7 +245,7 @@ export default function SignUpScreen() {
           </ScrollView>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 
